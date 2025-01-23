@@ -214,11 +214,7 @@ func (ns *noiseServer) NoisePollNetMapHandler(
 
 	ns.nodeKey = mapRequest.NodeKey
 
-	node, err := ns.headscale.db.GetNodeByAnyKey(
-		ns.conn.Peer(),
-		mapRequest.NodeKey,
-		key.NodePublic{},
-	)
+	node, err := ns.headscale.db.GetNodeByNodeKey(mapRequest.NodeKey)
 	if err != nil {
 		log.Error().
 			Str("handler", "NoisePollNetMap").
