@@ -250,52 +250,48 @@ func (ns *noiseServer) NoiseRegistrationHandler(
 		Caller().
 		Msg("Headers")
 
-	body, _ := io.ReadAll(req.Body)
-	var registerRequest tailcfg.RegisterRequest
-	if err := json.Unmarshal(body, &registerRequest); err != nil {
-		log.Error().
-			Caller().
-			Err(err).
-			Msg("Cannot parse RegisterRequest")
-		http.Error(writer, "Internal error", http.StatusInternalServerError)
+	registerResponse, err := func() ([]byte, error) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		var registerRequest tailcfg.RegisterRequest
+		if err := json.Unmarshal(body, &registerRequest); err != nil {
+			return nil, err
+		}
 
-		return
-	}
+		// Reject unsupported versions
+		if rejectUnsupported(writer, registerRequest.Version) {
+			return nil, err
+		}
 
-	// Reject unsupported versions
-	if rejectUnsupported(writer, registerRequest.Version) {
-		return
-	}
+		ns.nodeKey = registerRequest.NodeKey
 
-	ns.nodeKey = registerRequest.NodeKey
+		resp, err := ns.headscale.handleRegister(req.Context(), registerRequest, ns.conn.Peer())
+		// TODO(kradalby): Here we could have two error types, one that is surfaced to the client
+		// and one that returns 500.
+		if err != nil {
+			return nil, err
+		}
 
-	resp, err := ns.headscale.handleRegister(req.Context(), registerRequest, ns.conn.Peer())
-	// TODO(kradalby): Here we could have two error types, one that is surfaced to the client
-	// and one that returns 500.
-	if err != nil {
-		log.Error().
-			Caller().
-			Err(err).
-			Msg("Error handling registration")
-		http.Error(writer, "Internal error", http.StatusInternalServerError)
+		respBody, err := json.Marshal(resp)
+		if err != nil {
+			return nil, err
+		}
 
-		return
-	}
-
-	respBody, err := json.Marshal(resp)
+		return respBody, nil
+	}()
 	if err != nil {
 		log.Error().
 			Caller().
 			Err(err).
 			Msg("Error handling registration")
 		http.Error(writer, "Internal server error", http.StatusInternalServerError)
-
-		return
 	}
 
 	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	writer.WriteHeader(http.StatusOK)
-	_, err = writer.Write(respBody)
+	_, err = writer.Write(registerResponse)
 	if err != nil {
 		log.Error().
 			Caller().
